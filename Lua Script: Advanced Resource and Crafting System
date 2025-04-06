@@ -1,0 +1,159 @@
+local ResourceManager = {}
+ResourceManager.__index = ResourceManager
+
+function ResourceManager:new()
+    local manager = setmetatable({}, self)
+    manager.resources = {}
+    return manager
+end
+
+function ResourceManager:addResource(resourceName, amount)
+    if not self.resources[resourceName] then
+        self.resources[resourceName] = 0
+    end
+    self.resources[resourceName] = self.resources[resourceName] + amount
+    print("Added " .. amount .. " of " .. resourceName .. ". Current amount: " .. self.resources[resourceName])
+end
+
+function ResourceManager:removeResource(resourceName, amount)
+    if not self.resources[resourceName] or self.resources[resourceName] < amount then
+        print("Not enough " .. resourceName .. " to remove.")
+        return false
+    end
+    self.resources[resourceName] = self.resources[resourceName] - amount
+    print("Removed " .. amount .. " of " .. resourceName .. ". Current amount: " .. self.resources[resourceName])
+    return true
+end
+
+function ResourceManager:displayResources()
+    print("Current Resources:")
+    for resource, amount in pairs(self.resources) do
+        print("- " .. resource .. ": " .. amount)
+    end
+end
+
+local CraftingSystem = {}
+CraftingSystem.__index = CraftingSystem
+
+function CraftingSystem:new(resourceManager)
+    local system = setmetatable({}, self)
+    system.resourceManager = resourceManager
+    system.recipes = {}
+    return system
+end
+
+function CraftingSystem:addRecipe(itemName, ingredients)
+    self.recipes[itemName] = ingredients
+end
+
+function CraftingSystem:craft(itemName)
+    local recipe = self.recipes[itemName]
+    if not recipe then
+        print("No recipe found for " .. itemName)
+        return false
+    end
+    
+    local canCraft = true
+    for ingredient, amount in pairs(recipe) do
+        if not self.resourceManager.resources[ingredient] or self.resourceManager.resources[ingredient] < amount then
+            print("Not enough " .. ingredient .. " to craft " .. itemName)
+            canCraft = false
+            break
+        end
+    end
+    
+    if canCraft then
+        for ingredient, amount in pairs(recipe) do
+            self.resourceManager:removeResource(ingredient, amount)
+        end
+        print("Successfully crafted " .. itemName)
+        return true
+    end
+    
+    return false
+end
+
+local MarketSystem = {}
+MarketSystem.__index = MarketSystem
+
+function MarketSystem:new()
+    local market = setmetatable({}, self)
+    market.prices = {}
+    return market
+end
+
+function MarketSystem:setPrice(itemName, price)
+    self.prices[itemName] = price
+    print("Price for " .. itemName .. " set to " .. price)
+end
+
+function MarketSystem:buy(itemName, amount, resourceManager)
+    local price = self.prices[itemName]
+    if not price then
+        print("Item " .. itemName .. " not available in the market.")
+        return false
+    end
+    
+    local totalCost = price * amount
+    if not resourceManager.resources["gold"] or resourceManager.resources["gold"] < totalCost then
+        print("Not enough gold to buy " .. amount .. " of " .. itemName)
+        return false
+    end
+    
+    resourceManager:removeResource("gold", totalCost)
+    resourceManager:addResource(itemName, amount)
+    print("Bought " .. amount .. " of " .. itemName .. " for " .. totalCost .. " gold.")
+    return true
+end
+
+function MarketSystem:sell(itemName, amount, resourceManager)
+    local price = self.prices[itemName]
+    if not price then
+        print("Item " .. itemName .. " not available for selling.")
+        return false
+    end
+    
+    if not resourceManager.resources[itemName] or resourceManager.resources[itemName] < amount then
+        print("Not enough " .. itemName .. " to sell.")
+        return false
+    end
+    
+    local totalSale = price * amount
+    resourceManager:removeResource(itemName, amount)
+    resourceManager:addResource("gold", totalSale)
+    print("Sold " .. amount .. " of " .. itemName .. " for " .. totalSale .. " gold.")
+    return true
+end
+
+local resourceManager = ResourceManager:new()
+local craftingSystem = CraftingSystem:new(resourceManager)
+local marketSystem = MarketSystem:new()
+
+resourceManager:addResource("wood", 100)
+resourceManager:addResource("stone", 50)
+resourceManager:addResource("gold", 200)
+
+craftingSystem:addRecipe("axe", {wood = 10, stone = 5})
+craftingSystem:addRecipe("sword", {wood = 5, stone = 10})
+craftingSystem:addRecipe("pickaxe", {wood = 8, stone = 8})
+
+marketSystem:setPrice("axe", 30)
+marketSystem:setPrice("sword", 50)
+marketSystem:setPrice("pickaxe", 40)
+
+resourceManager:displayResources()
+
+craftingSystem:craft("axe")
+craftingSystem:craft("sword")
+
+resourceManager:displayResources()
+
+marketSystem:buy("axe", 2, resourceManager)
+marketSystem:buy("sword", 1, resourceManager)
+
+resourceManager:displayResources()
+
+marketSystem:sell("axe", 1, resourceManager)
+marketSystem:sell("sword", 1, resourceManager)
+
+resourceManager:displayResources()
