@@ -1,0 +1,166 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+
+local questManager = {}
+questManager.__index = questManager
+
+local playerData = {}
+
+-- Quest Manager
+function questManager.new()
+    local self = setmetatable({}, questManager)
+    self.activeQuests = {}
+    self.questList = {}
+    return self
+end
+
+function questManager:addQuest(questName, description, objectives, rewards)
+    self.questList[questName] = {
+        description = description,
+        objectives = objectives,
+        rewards = rewards,
+        completed = false
+    }
+end
+
+function questManager:startQuest(player, questName)
+    if self.questList[questName] then
+        self.activeQuests[player.UserId] = {
+            questName = questName,
+            objectives = self.questList[questName].objectives,
+            progress = {}
+        }
+        for objective, amount in pairs(self.questList[questName].objectives) do
+            self.activeQuests[player.UserId].progress[objective] = 0
+        end
+        return true
+    end
+    return false
+end
+
+function questManager:updateQuestProgress(player, objective, amount)
+    if self.activeQuests[player.UserId] then
+        local quest = self.activeQuests[player.UserId]
+        if quest.objectives[objective] then
+            quest.progress[objective] = math.min(quest.objectives[objective], quest.progress[objective] + amount)
+            if quest.progress[objective] == quest.objectives[objective] then
+                self:checkQuestCompletion(player)
+            end
+        end
+    end
+end
+
+function questManager:checkQuestCompletion(player)
+    local quest = self.activeQuests[player.UserId]
+    local completed = true
+    for objective, amount in pairs(quest.objectives) do
+        if quest.progress[objective] < amount then
+            completed = false
+            break
+        end
+    end
+    if completed then
+        self:completeQuest(player)
+    end
+end
+
+function questManager:completeQuest(player)
+    local quest = self.activeQuests[player.UserId]
+    local rewards = self.questList[quest.questName].rewards
+    self:giveRewards(player, rewards)
+    playerData[player.UserId].completedQuests = playerData[player.UserId].completedQuests + 1
+    self.activeQuests[player.UserId] = nil
+end
+
+function questManager:giveRewards(player, rewards)
+    for reward, amount in pairs(rewards) do
+        if reward == "gold" then
+            playerData[player.UserId].gold = playerData[player.UserId].gold + amount
+        elseif reward == "experience" then
+            playerData[player.UserId].experience = playerData[player.UserId].experience + amount
+        elseif reward == "item" then
+            self:addItemToInventory(player, amount)
+        end
+    end
+end
+
+function questManager:addItemToInventory(player, itemName)
+    if not playerData[player.UserId].inventory then
+        playerData[player.UserId].inventory = {}
+    end
+    playerData[player.UserId].inventory[itemName] = (playerData[player.UserId].inventory[itemName] or 0) + 1
+end
+
+-- Player Data Manager
+function initializePlayer(player)
+    playerData[player.UserId] = {
+        gold = 100,
+        experience = 0,
+        completedQuests = 0,
+        inventory = {}
+    }
+end
+
+-- Game Loop
+game.Players.PlayerAdded:Connect(function(player)
+    initializePlayer(player)
+
+    local playerQuestManager = questManager.new()
+
+    -- Example of adding quests
+    playerQuestManager:addQuest("Collect Wood", "Collect 10 pieces of wood.", {Wood = 10}, {gold = 50, experience = 100, item = "WoodenSword"})
+    playerQuestManager:addQuest("Hunt Monsters", "Defeat 5 monsters.", {MonstersDefeated = 5}, {gold = 100, experience = 200})
+
+    -- Quest Interaction
+    player.Chatted:Connect(function(message)
+        if message == "start Collect Wood" then
+            if playerQuestManager:startQuest(player, "Collect Wood") then
+                print("Quest 'Collect Wood' started.")
+            end
+        elseif message == "start Hunt Monsters" then
+            if playerQuestManager:startQuest(player, "Hunt Monsters") then
+                print("Quest 'Hunt Monsters' started.")
+            end
+        elseif message == "check quest progress" then
+            if playerQuestManager.activeQuests[player.UserId] then
+                local activeQuest = playerQuestManager.activeQuests[player.UserId]
+                print("Quest: " .. activeQuest.questName)
+                for objective, amount in pairs(activeQuest.objectives) do
+                    print(objective .. ": " .. activeQuest.progress[objective] .. "/" .. amount)
+                end
+            else
+                print("No active quests.")
+            end
+        end
+    end)
+
+    -- Quest Completion Simulation
+    player.Touched:Connect(function(hit)
+        if hit and hit.Parent:FindFirstChild("Humanoid") then
+            if playerQuestManager.activeQuests[player.UserId] then
+                local activeQuest = playerQuestManager.activeQuests[player.UserId]
+                if activeQuest.questName == "Collect Wood" then
+                    playerQuestManager:updateQuestProgress(player, "Wood", 1)
+                elseif activeQuest.questName == "Hunt Monsters" then
+                    playerQuestManager:updateQuestProgress(player, "MonstersDefeated", 1)
+                end
+            end
+        end
+    end)
+end)
+
+-- Admin Commands for testing
+game.Players.PlayerAdded:Connect(function(player)
+    player.Chatted:Connect(function(message)
+        if message == "!addgold" then
+            playerData[player.UserId].gold = playerData[player.UserId].gold + 500
+            print(player.Name .. " received 500 gold.")
+        elseif message == "!addexp" then
+            playerData[player.UserId].experience = playerData[player.UserId].experience + 100
+            print(player.Name .. " received 100 experience.")
+        end
+    end)
+end)
+
