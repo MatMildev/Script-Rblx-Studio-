@@ -1,0 +1,172 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+
+local resourceManager = {}
+resourceManager.__index = resourceManager
+
+local craftingManager = {}
+craftingManager.__index = craftingManager
+
+local marketManager = {}
+marketManager.__index = marketManager
+
+local playerData = {}
+
+-- Resource Manager
+function resourceManager.new()
+    local self = setmetatable({}, resourceManager)
+    self.resources = {}
+    return self
+end
+
+function resourceManager:addResource(player, resource, amount)
+    if not self.resources[player.UserId] then
+        self.resources[player.UserId] = {}
+    end
+    self.resources[player.UserId][resource] = (self.resources[player.UserId][resource] or 0) + amount
+end
+
+function resourceManager:removeResource(player, resource, amount)
+    if self.resources[player.UserId] and self.resources[player.UserId][resource] then
+        self.resources[player.UserId][resource] = math.max(0, self.resources[player.UserId][resource] - amount)
+    end
+end
+
+function resourceManager:getResource(player, resource)
+    return self.resources[player.UserId] and self.resources[player.UserId][resource] or 0
+end
+
+-- Crafting Manager
+function craftingManager.new(resourceManager)
+    local self = setmetatable({}, craftingManager)
+    self.resourceManager = resourceManager
+    self.recipes = {}
+    return self
+end
+
+function craftingManager:addRecipe(itemName, ingredients)
+    self.recipes[itemName] = ingredients
+end
+
+function craftingManager:craft(player, itemName)
+    local recipe = self.recipes[itemName]
+    if not recipe then return false end
+    local canCraft = true
+    for resource, amount in pairs(recipe) do
+        if self.resourceManager:getResource(player, resource) < amount then
+            canCraft = false
+            break
+        end
+    end
+    if canCraft then
+        for resource, amount in pairs(recipe) do
+            self.resourceManager:removeResource(player, resource, amount)
+        end
+        return true
+    end
+    return false
+end
+
+-- Market Manager
+function marketManager.new()
+    local self = setmetatable({}, marketManager)
+    self.prices = {}
+    return self
+end
+
+function marketManager:setPrice(itemName, price)
+    self.prices[itemName] = price
+end
+
+function marketManager:buy(player, itemName, amount)
+    local price = self.prices[itemName]
+    if not price then return false end
+    local totalCost = price * amount
+    if playerData[player.UserId].balance >= totalCost then
+        playerData[player.UserId].balance = playerData[player.UserId].balance - totalCost
+        self.resourceManager:addResource(player, itemName, amount)
+        return true
+    end
+    return false
+end
+
+function marketManager:sell(player, itemName, amount)
+    local price = self.prices[itemName]
+    if not price then return false end
+    if self.resourceManager:getResource(player, itemName) >= amount then
+        local totalSale = price * amount
+        self.resourceManager:removeResource(player, itemName, amount)
+        playerData[player.UserId].balance = playerData[player.UserId].balance + totalSale
+        return true
+    end
+    return false
+end
+
+-- Player Data Manager
+function initializePlayer(player)
+    playerData[player.UserId] = {
+        balance = 1000,
+        inventory = {}
+    }
+end
+
+-- Game Loop
+game.Players.PlayerAdded:Connect(function(player)
+    initializePlayer(player)
+
+    local playerResourceManager = resourceManager.new()
+    local playerCraftingManager = craftingManager.new(playerResourceManager)
+    local playerMarketManager = marketManager.new()
+
+    -- Set up sample recipes
+    playerCraftingManager:addRecipe("Sword", {Iron = 10, Wood = 5})
+    playerCraftingManager:addRecipe("Shield", {Wood = 8, Iron = 3})
+
+    -- Set market prices
+    playerMarketManager:setPrice("Sword", 200)
+    playerMarketManager:setPrice("Shield", 150)
+
+    -- Event for resource collection
+    player.Chatted:Connect(function(message)
+        if message == "collect iron" then
+            playerResourceManager:addResource(player, "Iron", 5)
+        elseif message == "collect wood" then
+            playerResourceManager:addResource(player, "Wood", 5)
+        elseif message == "check inventory" then
+            for resource, amount in pairs(playerResourceManager.resources[player.UserId] or {}) do
+                print(resource .. ": " .. amount)
+            end
+        elseif message == "craft sword" then
+            if playerCraftingManager:craft(player, "Sword") then
+                print("Sword crafted!")
+            else
+                print("Not enough resources!")
+            end
+        elseif message == "buy sword" then
+            if playerMarketManager:buy(player, "Sword", 1) then
+                print("Sword bought!")
+            else
+                print("Not enough funds!")
+            end
+        elseif message == "sell sword" then
+            if playerMarketManager:sell(player, "Sword", 1) then
+                print("Sword sold!")
+            else
+                print("You don't have any!")
+            end
+        end
+    end)
+end)
+
+-- Admin Commands
+game.Players.PlayerAdded:Connect(function(player)
+    player.Chatted:Connect(function(message)
+        if message == "!addgold" then
+            playerData[player.UserId].balance = playerData[player.UserId].balance + 1000
+            print(player.Name .. " received 1000 gold.")
+        end
+    end)
+end)
+
