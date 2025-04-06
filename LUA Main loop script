@@ -1,0 +1,146 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Debris = game:GetService("Debris")
+
+local InventoryModule = require(ReplicatedStorage:WaitForChild("InventoryModule"))
+local CraftingModule = require(ReplicatedStorage:WaitForChild("CraftingModule"))
+local MarketModule = require(ReplicatedStorage:WaitForChild("MarketModule"))
+
+local npcData = {
+    {Name = "Blacksmith", Position = Vector3.new(50, 5, -70), InteractionDistance = 10, Dialogue = "I can craft you a sword, bring me 10 wood and 5 iron."},
+    {Name = "Merchant", Position = Vector3.new(100, 5, 50), InteractionDistance = 15, Dialogue = "I have items for sale, buy or sell with me!"}
+}
+
+local playerInventories = {}
+
+local function setupPlayerInventory(player)
+    playerInventories[player.UserId] = InventoryModule.new()
+    playerInventories[player.UserId]:setUp()
+end
+
+local function onPlayerJoin(player)
+    setupPlayerInventory(player)
+
+    player.CharacterAdded:Connect(function(character)
+        local humanoid = character:WaitForChild("Humanoid")
+        humanoid.Died:Connect(function()
+            playerInventories[player.UserId]:clear()
+        end)
+    end)
+end
+
+Players.PlayerAdded:Connect(onPlayerJoin)
+
+local function checkProximity(player, npcPosition, interactionDistance)
+    local playerPosition = player.Character:WaitForChild("HumanoidRootPart").Position
+    local distance = (npcPosition - playerPosition).magnitude
+    return distance <= interactionDistance
+end
+
+local function npcInteraction(player, npc)
+    if checkProximity(player, npc.Position, npc.InteractionDistance) then
+        local dialogueBox = Instance.new("TextLabel")
+        dialogueBox.Text = npc.Dialogue
+        dialogueBox.Parent = player.PlayerGui
+        dialogueBox.Size = UDim2.new(0, 400, 0, 50)
+        dialogueBox.Position = UDim2.new(0.5, -200, 0.8, 0)
+
+        wait(5)
+        dialogueBox:Destroy()
+    end
+end
+
+local function spawnNpc(npc)
+    local npcModel = Instance.new("Model")
+    local npcPart = Instance.new("Part")
+    npcPart.Size = Vector3.new(4, 6, 4)
+    npcPart.Position = npc.Position
+    npcPart.Anchored = true
+    npcPart.Parent = npcModel
+
+    local npcName = Instance.new("StringValue")
+    npcName.Name = "NPCName"
+    npcName.Value = npc.Name
+    npcName.Parent = npcModel
+
+    npcModel.Parent = Workspace
+end
+
+local function craftItem(player, itemName)
+    local playerInventory = playerInventories[player.UserId]
+    local recipe = CraftingModule.getRecipe(itemName)
+
+    if recipe then
+        local canCraft = true
+        for ingredient, amount in pairs(recipe) do
+            if playerInventory:getItemCount(ingredient) < amount then
+                canCraft = false
+                break
+            end
+        end
+
+        if canCraft then
+            for ingredient, amount in pairs(recipe) do
+                playerInventory:removeItem(ingredient, amount)
+            end
+            playerInventory:addItem(itemName, 1)
+            return true
+        else
+            return false
+        end
+    end
+    return false
+end
+
+local function sellItem(player, itemName, amount)
+    local playerInventory = playerInventories[player.UserId]
+    local price = MarketModule.getItemPrice(itemName)
+
+    if playerInventory:getItemCount(itemName) >= amount then
+        local totalCost = price * amount
+        playerInventory:removeItem(itemName, amount)
+        playerInventory:addCurrency(totalCost)
+        return true
+    end
+    return false
+end
+
+local function buyItem(player, itemName, amount)
+    local playerInventory = playerInventories[player.UserId]
+    local price = MarketModule.getItemPrice(itemName)
+    local totalCost = price * amount
+
+    if playerInventory:getCurrency() >= totalCost then
+        playerInventory:removeCurrency(totalCost)
+        playerInventory:addItem(itemName, amount)
+        return true
+    end
+    return false
+end
+
+local function setupMarket()
+    MarketModule.setItemPrice("Sword", 50)
+    MarketModule.setItemPrice("Shield", 75)
+end
+
+local function mainLoop()
+    while true do
+        for _, npc in pairs(npcData) do
+            for _, player in pairs(Players:GetPlayers()) do
+                npcInteraction(player, npc)
+            end
+        end
+
+        wait(1)
+    end
+end
+
+setupMarket()
+
+for _, npc in pairs(npcData) do
+    spawnNpc(npc)
+end
+
+mainLoop()
+
