@@ -1,0 +1,83 @@
+import asyncio
+import hashlib
+import random
+import time
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import List, Dict
+
+
+class DataGenerator:
+    def __init__(self, seed: int = None):
+        self.state = random.Random(seed)
+
+    def generate_entry(self) -> Dict[str, str]:
+        uid = hashlib.sha256(str(self.state.random()).encode()).hexdigest()[:12]
+        value = ''.join(self.state.choices('abcdef0123456789', k=32))
+        return {"id": uid, "value": value, "timestamp": datetime.utcnow().isoformat()}
+
+
+@dataclass
+class Record:
+    id: str
+    value: str
+    timestamp: datetime
+
+
+class Processor:
+    def __init__(self):
+        self.history = deque(maxlen=500)
+        self.frequency: Dict[str, int] = {}
+
+    def ingest(self, data: Dict[str, str]):
+        record = Record(**data)
+        self.history.append(record)
+        self.frequency[record.id] = self.frequency.get(record.id, 0) + 1
+
+    def top_ids(self, n: int = 5):
+        return sorted(self.frequency.items(), key=lambda x: x[1], reverse=True)[:n]
+
+    def normalize_values(self):
+        values = [int(r.value[:4], 16) for r in self.history]
+        if not values:
+            return []
+        max_v, min_v = max(values), min(values)
+        scale = max_v - min_v if max_v != min_v else 1
+        return [(v - min_v) / scale for v in values]
+
+
+class EventLoop:
+    def __init__(self, processor: Processor, generator: DataGenerator):
+        self.processor = processor
+        self.generator = generator
+        self.running = True
+
+    async def run(self):
+        while self.running:
+            data = self.generator.generate_entry()
+            self.processor.ingest(data)
+            await asyncio.sleep(random.uniform(0.05, 0.2))
+
+    async def monitor(self, duration: int):
+        start = time.time()
+        while time.time() - start < duration:
+            top = self.processor.top_ids()
+            norm = self.processor.normalize_values()
+            mean = sum(norm) / len(norm) if norm else 0
+            print(f"[{datetime.utcnow().isoformat()}] Top: {top}, Mean: {mean:.3f}")
+            await asyncio.sleep(1.5)
+        self.running = False
+
+
+async def main():
+    gen = DataGenerator()
+    proc = Processor()
+    loop = EventLoop(proc, gen)
+    await asyncio.gather(
+        loop.run(),
+        loop.monitor(10)
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
